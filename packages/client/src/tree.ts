@@ -1,4 +1,10 @@
 import { poseidon, FR_MODULUS } from "./identity.js";
+import { InvalidInputError } from "./errors.js";
+
+// The Merkle depth is configurable — ./config.ts resolves it from LEVELS or
+// circuits/config.json, which the circuit is generated from. Declared there so
+// there is exactly one source of truth; nothing in this module needs it.
+// No `node:*` imports — this file runs unmodified in both Node and the browser.
 
 /**
  * Fixed placeholder for unused leaves when padding the tree out to full capacity (2**levels).
@@ -48,7 +54,9 @@ export class MerkleTree {
    * @param levels - The number of levels in the tree (capacity = 2^levels).
    * @param leaves - The leaf values (identity commitments).
    * @returns A new MerkleTree instance.
-   * @throws {Error} If the number of leaves exceeds the tree capacity.
+   * @throws {RangeError} If levels is not a valid integer in [1, 32].
+   * @throws {RangeError} If any leaf is outside [0, FR_MODULUS).
+   * @throws {InvalidInputError} If the number of leaves exceeds the tree capacity.
    */
   static create(levels: number, leaves: bigint[]): MerkleTree {
     // Validate `levels` before computing capacity (Issue #50).
@@ -56,18 +64,14 @@ export class MerkleTree {
     // all of which would otherwise produce a nonsensical capacity (e.g.
     // 2 ** 0.5 === 1.414…, 2 ** Infinity === Infinity).
     if (!Number.isInteger(levels) || levels < 1) {
-      throw new RangeError(
-        `levels must be an integer >= 1, got ${levels}`,
-      );
+      throw new RangeError(`levels must be an integer >= 1, got ${levels}`);
     }
     // Cap at 32 — even 2**32 leaves (4.3 billion bigints) would require
     // > 100 GB of memory on its own, far past anything practical for a
     // browser wallet.  This is a generous limit; real deployments use
     // depth 20 or 32 at most.
     if (levels > 32) {
-      throw new RangeError(
-        `levels must be <= 32, got ${levels}`,
-      );
+      throw new RangeError(`levels must be <= 32, got ${levels}`);
     }
 
     // Validate every leaf is a well-formed field element in [0, FR_MODULUS)
@@ -76,9 +80,7 @@ export class MerkleTree {
     for (let i = 0; i < leaves.length; i++) {
       const leaf = leaves[i];
       if (leaf < 0n || leaf >= FR_MODULUS) {
-        throw new RangeError(
-          `leaf at index ${i} must satisfy 0 <= leaf < FR_MODULUS, got ${leaf}`,
-        );
+        throw new RangeError(`leaf at index ${i} must satisfy 0 <= leaf < FR_MODULUS, got ${leaf}`);
       }
     }
 
@@ -124,11 +126,31 @@ export class MerkleTree {
   }
 
   /**
+   * Generates a Merkle proof for a leaf by its commitment value, with a
+   * descriptive error for leaves that aren't in the tree.
+   *
+   * @param leaf - The leaf value (identity commitment) to prove membership of.
+   * @returns A MerkleProof for the leaf.
+   * @throws {InvalidInputError} If the leaf is not in the tree.
+   */
+  proofOf(leaf: bigint): MerkleProof {
+    const index = this.indexOf(leaf);
+    if (index === -1) {
+      const slots = this.layers[0].length;
+      const occupied = this.leaves.length;
+      throw new InvalidInputError(
+        `leaf 0x${leaf.toString(16)} not found in this tree (${slots} slots, ${occupied} occupied)`,
+      );
+    }
+    return this.proof(index);
+  }
+
+  /**
    * Generates a Merkle proof for a leaf at the given index.
    *
    * @param leafIndex - The index of the leaf in the tree.
    * @returns A MerkleProof containing the root, path elements, and path indices.
-   * @throws {Error} If the leaf index is out of range.
+   * @throws {InvalidInputError} If the leaf index is out of range.
    */
   proof(leafIndex: number): MerkleProof {
     if (leafIndex < 0 || leafIndex >= this.layers[0].length) {

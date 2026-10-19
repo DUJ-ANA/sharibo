@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export function usePoliteLiveRegion(debounceMs = 100) {
   const [message, setMessage] = useState("");
-  const timeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const timeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
@@ -12,23 +12,26 @@ export function usePoliteLiveRegion(debounceMs = 100) {
     };
   }, []);
 
-  const announce = useCallback((nextMessage: string) => {
-    if (!nextMessage) {
-      setMessage("");
+  const announce = useCallback(
+    (nextMessage: string) => {
+      if (!nextMessage) {
+        setMessage("");
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+        return;
+      }
+
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
-      return;
-    }
 
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-
-    timeoutRef.current = window.setTimeout(() => {
-      setMessage(nextMessage);
-    }, debounceMs);
-  }, [debounceMs]);
+      timeoutRef.current = window.setTimeout(() => {
+        setMessage(nextMessage);
+      }, debounceMs);
+    },
+    [debounceMs],
+  );
 
   return { announce, message };
 }

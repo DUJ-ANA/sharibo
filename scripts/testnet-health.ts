@@ -1,4 +1,5 @@
 import { rpc as StellarRpc, Address, xdr } from "@stellar/stellar-sdk";
+import { httpGetJson } from "./http.js";
 
 export interface TestnetResetCheckResult {
   ok: boolean;
@@ -19,7 +20,11 @@ export async function checkContractDeployed(
   const server = new StellarRpc.Server(rpcUrl);
 
   try {
-    await server.getHealth();
+    // The health probe is a plain GET, so it goes through the shared helper
+    // like every other HTTP call in this workspace (one deadline policy, one
+    // error format). getLedgerEntries below stays on the SDK's Server because
+    // it needs an XDR-encoded POST, which httpGet deliberately does not do.
+    await httpGetJson(`${rpcUrl}/health`, { timeoutMs: 10_000 });
   } catch {
     // RPC itself is unreachable/unhealthy — a different problem than a
     // testnet reset; let the caller's own network calls surface that.
@@ -44,10 +49,6 @@ export async function checkContractDeployed(
       `Contract ${contractId} was not found, but RPC (${rpcUrl}) reports healthy.\n` +
       "This usually means the Stellar testnet was reset and every deployed\n" +
       "contract was wiped — not a bug in this script.\n\n" +
-      "To recover:\n" +
-      '  1. Redeploy: see README.md, "Run it" → "3. Contract"\n' +
-      "     (stellar contract build && stellar contract deploy ...)\n" +
-      "  2. Paste the new contract id into .env as SHARIBO_CONTRACT_ID\n" +
-      "  3. Re-run this script.",
+      "Full recovery steps: docs/runbook-testnet-reset.md",
   };
 }
